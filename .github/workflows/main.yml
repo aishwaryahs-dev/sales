@@ -1,0 +1,53 @@
+name: CI pipeline
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  test:
+    name: 1. Train, gate and test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Train model and run acceptance gate
+        run: python train.py
+
+      - name: Run pipeline tests
+        run: pytest -v
+
+  docker:
+    name: 2. Build and test container
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the code
+        uses: actions/checkout@v4
+
+      - name: Build Docker image
+        run: docker build -t store-sales-api .
+
+      - name: Start container
+        run: docker run -d -p 8000:8000 --name api store-sales-api
+
+      - name: Smoke test the running API
+        run: |
+          for i in $(seq 1 30); do curl -sf http://localhost:8000/health && break; sleep 2; done
+          echo
+          curl -sf http://localhost:8000/health
+          echo
+          curl -sf -X POST http://localhost:8000/predict \
+            -H "Content-Type: application/json" \
+            -d '{"store_id": 3, "date": "2026-01-03", "last_week_sales": 230, "avg_last_7_days": 185}'
